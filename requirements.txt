@@ -1,0 +1,34 @@
+# BP-AGI: Biologically Plausible AGI Requirements
+# ================================================
+
+# Core Deep Learning Framework
+torch>=2.7.0
+torchvision>=0.18.0
+torchaudio>=2.7.0
+
+# Spiking Neural Network Libraries
+snntorch>=0.9.4          # PyTorch-based SNN library
+brian2>=2.10.1           # Pure spiking neural network simulator
+norse>=1.0.0             # Deep learning with SNNs in PyTorch
+
+# Graph/Knowledge Store (UKS)
+networkx>=3.6.1          # Graph library for Universal Knowledge Store
+
+# Numerical Computing
+numpy>=2.0.0             # Integer array operations (core requirement)
+scipy>=1.14.0            # Scientific computing utilities
+
+# Vision Pipeline
+opencv-python>=4.10.0    # Computer vision for the vision pipeline
+
+# Visualization & Development
+matplotlib>=3.9.0        # Plotting and visualization
+jupyter>=1.0.0           # Interactive development
+ipython>=8.0.0           # Enhanced Python shell
+
+# Performance Profiling (optional but recommended)
+memory-profiler>=0.61    # Memory usage profiling
+line-profiler>=4.1.0     # Line-by-line profiling
+
+# Testing
+pytest>=8.0.0            # Testing framework
