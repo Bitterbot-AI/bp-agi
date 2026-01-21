@@ -47,9 +47,9 @@ struct DragonflyConfig {
     static constexpr int REWARD_AMOUNT = 100;
 
     // 2-Attempt Protocol
-    static constexpr int NOISE_AMPLITUDE = 15;        // NE injection strength
+    static constexpr int NOISE_AMPLITUDE = 50;        // NE injection strength (was 15, too weak)
     static constexpr int NOISE_SETTLE_TICKS = 5;      // Time after noise
-    static constexpr float PASS_THRESHOLD = 0.99f;    // 99% match = pass
+    static constexpr float PASS_THRESHOLD = 1.0f;     // ARC requires 100% exact match
 
     // Output
     static constexpr bool VERBOSE = true;
