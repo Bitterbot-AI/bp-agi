@@ -436,54 +436,87 @@ void Network::plasticityPhase() {
     // STDP: Update weights based on spike timing
     // Blueprint: "If post fires shortly after pre, strengthen connection"
     //
+    // OPTIMIZED VERSION: Forward-lookup only (O(Spikes × Synapses) not O(Spikes × Neurons))
+    //
     // DOPAMINE EFFECT (The "Save Button"):
     // DA gates whether learning occurs at all.
     // If DA < 10: Learning is DISABLED (freeze weights)
     // If DA >= 10: Learning strength = delta * (DA / 50)
-    //
-    // Two modes:
-    // - Pavlovian (operantMode_ = false): Immediate weight update
-    // - Operant (operantMode_ = true): Mark eligibility, wait for reward
 
     // Check if dopamine is too low for learning
     if (chemicals_.dopamine < 10) {
         return;  // No learning when DA is depleted
     }
 
-    // Calculate dopamine learning multiplier: (DA / 50)
-    // DA=50 gives 1.0x, DA=100 gives 2.0x, DA=10 gives 0.2x
-    int32_t dopamineMultiplier = chemicals_.dopamine;
-
-    // Helper lambda to apply STDP to a synapse (with DA modulation)
-    auto applySTDP = [this, dopamineMultiplier](Synapse& syn, NeuronId preId, NeuronId postId) {
+    // Helper lambda to apply STDP to a synapse
+    auto applySTDP = [this](Synapse& syn, NeuronId preId, NeuronId postId) {
         if (!syn.isHebbian) return;
 
         Tick preFired = neurons_[preId].lastFiredStep;
         Tick postFired = neurons_[postId].lastFiredStep;
 
-        Tick deltaT = postFired - preFired;
-        if (std::abs(deltaT) <= STDP_WINDOW) {
-            if (operantMode_) {
-                // Operant: Mark as eligible, don't update weight yet
-                syn.markEligible(preFired, postFired);
-            } else {
-                // Pavlovian: Immediate weight update
-                syn.updateWeight(preFired, postFired);
-            }
+        if (operantMode_) {
+            // Operant: Mark as eligible, don't update weight yet
+            syn.markEligible(preFired, postFired);
+        } else {
+            // Pavlovian: Immediate weight update
+            syn.updateWeight(preFired, postFired);
         }
     };
 
-    // For each neuron that fired this tick (LTP candidates)
-    for (NeuronId postId : firedThisTick_) {
-        // Check all pre-synaptic neurons
-        for (NeuronId preId = 0; preId < neurons_.size(); preId++) {
+    // =================================================================
+    // LTP (Long-Term Potentiation): Pre fired recently -> Post fires NOW
+    // =================================================================
+    // OPTIMIZATION: Instead of scanning ALL neurons to find who connects to Post,
+    // we iterate Pre-neurons that fired LAST tick and check if their TARGETS fired THIS tick.
+    // Complexity: O(LastSpikes × AvgSynapses) instead of O(ThisSpikes × AllNeurons)
+
+    for (NeuronId preId : firedLastTick_) {
+        Neuron& pre = neurons_[preId];
+
+        // Check contiguous synapses from this pre-neuron
+        for (uint16_t i = 0; i < pre.synapseCount; i++) {
+            Synapse& syn = synapses_[pre.synapseListIndex + i];
+
+            // O(1) lookup: Did this synapse's target fire THIS tick?
+            if (firedThisTick_.count(syn.targetNeuronIndex)) {
+                // Pre fired last tick, Post fired this tick -> LTP
+                applySTDP(syn, preId, syn.targetNeuronIndex);
+            }
+        }
+
+        // Check dynamic synapses
+        auto dynIt = dynamicSynapses_.find(preId);
+        if (dynIt != dynamicSynapses_.end()) {
+            for (Synapse& syn : dynIt->second) {
+                if (firedThisTick_.count(syn.targetNeuronIndex)) {
+                    applySTDP(syn, preId, syn.targetNeuronIndex);
+                }
+            }
+        }
+    }
+
+    // =================================================================
+    // LTD (Long-Term Depression): Post fired recently -> Pre fires NOW
+    // =================================================================
+    // Pavlovian mode only - in operant mode, LTD happens via negative reward
+
+    if (!operantMode_) {
+        for (NeuronId preId : firedThisTick_) {
             Neuron& pre = neurons_[preId];
 
             // Check contiguous synapses
             for (uint16_t i = 0; i < pre.synapseCount; i++) {
                 Synapse& syn = synapses_[pre.synapseListIndex + i];
-                if (syn.targetNeuronIndex == postId) {
-                    applySTDP(syn, preId, postId);
+
+                // Did target fire LAST tick? (Post before Pre = LTD)
+                if (syn.isHebbian && firedLastTick_.count(syn.targetNeuronIndex)) {
+                    Tick preFired = pre.lastFiredStep;
+                    Tick postFired = neurons_[syn.targetNeuronIndex].lastFiredStep;
+                    Tick deltaT = postFired - preFired;
+                    if (deltaT < 0 && std::abs(deltaT) <= STDP_WINDOW) {
+                        syn.updateWeight(preFired, postFired);
+                    }
                 }
             }
 
@@ -491,45 +524,12 @@ void Network::plasticityPhase() {
             auto dynIt = dynamicSynapses_.find(preId);
             if (dynIt != dynamicSynapses_.end()) {
                 for (Synapse& syn : dynIt->second) {
-                    if (syn.targetNeuronIndex == postId) {
-                        applySTDP(syn, preId, postId);
-                    }
-                }
-            }
-        }
-    }
-
-    // Also check for LTD: post fired before pre (Pavlovian mode only)
-    // In operant mode, LTD happens via negative reward
-    if (!operantMode_) {
-        for (NeuronId postId : firedLastTick_) {
-            for (NeuronId preId : firedThisTick_) {
-                Neuron& pre = neurons_[preId];
-
-                // Check contiguous synapses
-                for (uint16_t i = 0; i < pre.synapseCount; i++) {
-                    Synapse& syn = synapses_[pre.synapseListIndex + i];
-                    if (syn.targetNeuronIndex == postId && syn.isHebbian) {
+                    if (syn.isHebbian && firedLastTick_.count(syn.targetNeuronIndex)) {
                         Tick preFired = pre.lastFiredStep;
-                        Tick postFired = neurons_[postId].lastFiredStep;
+                        Tick postFired = neurons_[syn.targetNeuronIndex].lastFiredStep;
                         Tick deltaT = postFired - preFired;
-                        if (std::abs(deltaT) <= STDP_WINDOW && deltaT < 0) {
+                        if (deltaT < 0 && std::abs(deltaT) <= STDP_WINDOW) {
                             syn.updateWeight(preFired, postFired);
-                        }
-                    }
-                }
-
-                // Check dynamic synapses
-                auto dynIt = dynamicSynapses_.find(preId);
-                if (dynIt != dynamicSynapses_.end()) {
-                    for (Synapse& syn : dynIt->second) {
-                        if (syn.targetNeuronIndex == postId && syn.isHebbian) {
-                            Tick preFired = pre.lastFiredStep;
-                            Tick postFired = neurons_[postId].lastFiredStep;
-                            Tick deltaT = postFired - preFired;
-                            if (std::abs(deltaT) <= STDP_WINDOW && deltaT < 0) {
-                                syn.updateWeight(preFired, postFired);
-                            }
                         }
                     }
                 }
