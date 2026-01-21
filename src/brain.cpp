@@ -223,6 +223,33 @@ void Brain::injectNoise(int amplitude) {
     }
 }
 
+void Brain::injectNoiseToHidden(int amplitude) {
+    // Tonic Norepinephrine: Inject noise to hidden layers only
+    // Skips retina neurons so input signal isn't corrupted
+    // Based on Aston-Jones & Cohen's Adaptive Gain Theory:
+    // - Sustained (tonic) NE promotes exploration mode
+    // - Noise in hidden layers is more powerful than input noise (PMC2771718)
+
+    static uint32_t seed = 54321;  // Different seed from injectNoise
+
+    // Build set of retina neuron IDs to skip
+    const auto& retinaNeurons = vision_.getRetinaNeurons();
+    std::unordered_set<NeuronId> retinaSet(retinaNeurons.begin(), retinaNeurons.end());
+
+    const size_t numNeurons = network_.getNeuronCount();
+    for (size_t i = 0; i < numNeurons; i++) {
+        // Skip retina neurons - don't corrupt the input signal
+        if (retinaSet.count(static_cast<NeuronId>(i))) {
+            continue;
+        }
+
+        // Linear congruential generator
+        seed = seed * 1103515245 + 12345;
+        int noise = static_cast<int>((seed >> 16) & 0x7FFF) % (2 * amplitude + 1) - amplitude;
+        network_.injectCharge(static_cast<NeuronId>(i), static_cast<Charge>(noise));
+    }
+}
+
 // ========================================
 // Query Interface
 // ========================================

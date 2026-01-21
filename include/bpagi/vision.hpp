@@ -137,6 +137,9 @@ public:
     // Get all boundary neuron IDs (for connecting to UKS bus)
     const std::vector<NeuronId>& getAllBoundaryNeurons() const { return boundaryNeurons_; }
 
+    // Get all retina neuron IDs (for noise injection exclusion)
+    const std::vector<NeuronId>& getRetinaNeurons() const { return retinaNeurons_; }
+
     // Get neuron ID for a corner detector
     NeuronId getCornerNeuron(size_t x, size_t y, CornerType type) const;
 

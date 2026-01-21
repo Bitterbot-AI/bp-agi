@@ -147,17 +147,40 @@ public:
         return computeSimilarity(expected);
     }
 
-    void injectNoise() {
-        // Inject norepinephrine (exploration noise)
-        brain_->injectNoise(DragonflyConfig::NOISE_AMPLITUDE);
-
-        // Also boost NE in chemical system
+    /**
+     * Predict with TONIC noise injection (for attempt 2)
+     *
+     * Based on Aston-Jones & Cohen's Adaptive Gain Theory:
+     * - Sustained (tonic) NE promotes exploration/uncertainty mode
+     * - Noise injected to hidden layers only (input signal preserved)
+     * - Multiple injections during settling = "keep shaking until it settles differently"
+     */
+    float predictWithTonicNoise(const std::vector<uint8_t>& input, const std::vector<uint8_t>& expected) {
+        // Boost NE in chemical system (exploration mode)
         brain_->getNetwork().chemicals().norepinephrine = 80;
 
-        // Let noise propagate
-        for (int t = 0; t < DragonflyConfig::NOISE_SETTLE_TICKS; t++) {
+        // Present input
+        brain_->present(input);
+        for (int t = 0; t < DragonflyConfig::PRESENT_TICKS; t++) {
             brain_->step();
         }
+
+        // Wait for prediction with TONIC noise injection
+        // Inject noise every few ticks to hidden layers only
+        for (int t = 0; t < DragonflyConfig::TEST_TICKS; t++) {
+            brain_->step();
+
+            // Tonic noise: inject every 4 ticks during settling
+            if (t % 4 == 0) {
+                brain_->injectNoiseToHidden(DragonflyConfig::NOISE_AMPLITUDE);
+            }
+        }
+
+        // Reset NE
+        brain_->getNetwork().chemicals().norepinephrine = 0;
+
+        // Compare retina to expected
+        return computeSimilarity(expected);
     }
 
     void disableLearning() {
@@ -283,11 +306,11 @@ int main(int argc, char* argv[]) {
                 result.passed = true;
                 result.attempt2Score = result.attempt1Score;
             } else {
-                // === INTERVENTION: Noise injection ===
-                brain.injectNoise();
-
-                // === ATTEMPT 2: Second guess ===
-                result.attempt2Score = brain.predict(test.input, test.output);
+                // === ATTEMPT 2: Tonic noise exploration ===
+                // Based on Aston-Jones & Cohen's Adaptive Gain Theory:
+                // - Sustained NE injection during settling promotes exploration
+                // - Noise to hidden layers only (preserves input signal)
+                result.attempt2Score = brain.predictWithTonicNoise(test.input, test.output);
 
                 if (result.attempt2Score >= DragonflyConfig::PASS_THRESHOLD) {
                     result.passed = true;

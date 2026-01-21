@@ -78,6 +78,10 @@ public:
     // Used for "creative" guessing - shakes system out of local minima
     void injectNoise(int amplitude);
 
+    // Inject noise to hidden layers only (skip retina/input neurons)
+    // Use this for tonic exploration during inference - doesn't corrupt input signal
+    void injectNoiseToHidden(int amplitude);
+
     // ========================================
     // Hippocampus Interface (Phase 18)
     // ========================================
