@@ -304,20 +304,11 @@ int main(int argc, char* argv[]) {
             if (result.attempt1Score >= DragonflyConfig::PASS_THRESHOLD) {
                 // Passed on first try!
                 result.passed = true;
-                result.attempt2Score = result.attempt1Score;
-            } else {
-                // === ATTEMPT 2: Tonic noise exploration ===
-                // Based on Aston-Jones & Cohen's Adaptive Gain Theory:
-                // - Sustained NE injection during settling promotes exploration
-                // - Noise to hidden layers only (preserves input signal)
-                result.attempt2Score = brain.predictWithTonicNoise(test.input, test.output);
-
-                if (result.attempt2Score >= DragonflyConfig::PASS_THRESHOLD) {
-                    result.passed = true;
-                    result.savedByRetry = true;
-                    savedByRetry++;
-                }
             }
+
+            // === ATTEMPT 2: Copy attempt 1 (tonic noise disabled for speed) ===
+            // TODO: Re-enable predictWithTonicNoise when noise injection is fixed
+            result.attempt2Score = result.attempt1Score;
         }
 
         auto taskEnd = std::chrono::high_resolution_clock::now();
@@ -331,26 +322,17 @@ int main(int argc, char* argv[]) {
             std::cout << "[" << std::setw(3) << (i + 1) << "/" << tasks.size() << "] "
                       << task.id << " (" << task.trainExamples.size() << " train) ";
 
-            if (result.passed && !result.savedByRetry) {
-                // First try success
+            if (result.passed) {
+                // Passed!
                 std::cout << std::fixed << std::setprecision(1)
                           << (result.attempt1Score * 100) << "% [PASS]"
                           << " (" << std::setprecision(0) << result.timeMs << "ms)"
                           << std::endl;
-            } else if (result.savedByRetry) {
-                // Saved by retry
-                std::cout << "Try1: " << std::fixed << std::setprecision(0)
-                          << (result.attempt1Score * 100) << "% -> "
-                          << "Try2: " << (result.attempt2Score * 100) << "% "
-                          << "[PASS - SAVED!]"
-                          << " (" << result.timeMs << "ms)"
-                          << std::endl;
             } else {
-                // Failed both
-                std::cout << "Try1: " << std::fixed << std::setprecision(0)
-                          << (result.attempt1Score * 100) << "% -> "
-                          << "Try2: " << (result.attempt2Score * 100) << "%"
-                          << " (" << result.timeMs << "ms)"
+                // Failed - show score with 0.1% precision
+                std::cout << std::fixed << std::setprecision(1)
+                          << (result.attempt1Score * 100) << "%"
+                          << " (" << std::setprecision(0) << result.timeMs << "ms)"
                           << std::endl;
             }
         }
