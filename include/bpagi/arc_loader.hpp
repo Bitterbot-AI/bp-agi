@@ -30,12 +30,47 @@ constexpr size_t ARC_RETINA_SIZE = 64 * 64;  // 4096 bytes per image
 
 /**
  * An input/output pair from an ARC task.
+ * Now includes original grid dimensions for spatial awareness.
  */
 struct ArcPair {
-    std::vector<uint8_t> input;   // 64x64 grayscale image
-    std::vector<uint8_t> output;  // 64x64 grayscale image
+    std::vector<uint8_t> input;   // 64x64 grayscale image (center-padded)
+    std::vector<uint8_t> output;  // 64x64 grayscale image (center-padded)
+
+    // Original grid dimensions (before padding to 64x64)
+    // These are used by the Parietal Patch for size prediction
+    uint8_t inputWidth = 0;
+    uint8_t inputHeight = 0;
+    uint8_t outputWidth = 0;
+    uint8_t outputHeight = 0;
 
     ArcPair() : input(ARC_RETINA_SIZE, 0), output(ARC_RETINA_SIZE, 0) {}
+
+    // Calculate dimensions from content bounds (for backward compatibility)
+    void inferDimensions() {
+        auto bounds = [](const std::vector<uint8_t>& img) -> std::pair<uint8_t, uint8_t> {
+            int minX = 64, maxX = -1, minY = 64, maxY = -1;
+            for (int y = 0; y < 64; y++) {
+                for (int x = 0; x < 64; x++) {
+                    if (img[y * 64 + x] > 0) {
+                        minX = std::min(minX, x);
+                        maxX = std::max(maxX, x);
+                        minY = std::min(minY, y);
+                        maxY = std::max(maxY, y);
+                    }
+                }
+            }
+            if (maxX < 0 || maxY < 0) return {1, 1};  // Empty grid
+            return {static_cast<uint8_t>(maxX - minX + 1),
+                    static_cast<uint8_t>(maxY - minY + 1)};
+        };
+
+        auto [iw, ih] = bounds(input);
+        auto [ow, oh] = bounds(output);
+        inputWidth = iw;
+        inputHeight = ih;
+        outputWidth = ow;
+        outputHeight = oh;
+    }
 };
 
 /**
@@ -113,6 +148,7 @@ public:
                 pair.output.resize(ARC_RETINA_SIZE);
                 file.read(reinterpret_cast<char*>(pair.input.data()), ARC_RETINA_SIZE);
                 file.read(reinterpret_cast<char*>(pair.output.data()), ARC_RETINA_SIZE);
+                pair.inferDimensions();  // Parietal Patch: calculate original grid size
                 task.trainExamples.push_back(std::move(pair));
             }
 
@@ -124,6 +160,7 @@ public:
                 pair.output.resize(ARC_RETINA_SIZE);
                 file.read(reinterpret_cast<char*>(pair.input.data()), ARC_RETINA_SIZE);
                 file.read(reinterpret_cast<char*>(pair.output.data()), ARC_RETINA_SIZE);
+                pair.inferDimensions();  // Parietal Patch: calculate original grid size
                 task.testExamples.push_back(std::move(pair));
             }
 

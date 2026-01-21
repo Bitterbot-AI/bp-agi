@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <array>
+#include <utility>  // for std::pair
 
 namespace bpagi {
 
@@ -25,6 +26,12 @@ namespace bpagi {
 constexpr size_t RETINA_WIDTH = 64;
 constexpr size_t RETINA_HEIGHT = 64;
 constexpr size_t RETINA_SIZE = RETINA_WIDTH * RETINA_HEIGHT;
+
+// 10-Channel Color Retina (ARC colors 0-9)
+constexpr size_t NUM_COLORS = 10;
+
+// Parietal Patch: Spatial Awareness (ARC grids are max 30x30)
+constexpr size_t MAX_GRID_DIM = 32;
 
 // Contrast threshold for receptor activation
 constexpr uint8_t CONTRAST_THRESHOLD = 30;
@@ -88,11 +95,30 @@ public:
     void reset();
 
     // ========================================
+    // Parietal Patch: Spatial Awareness
+    // ========================================
+    // "Ruler Neurons" - the brain learns dimension relationships
+    // e.g., "5x5 input → 7x7 output" (add border pattern)
+
+    // Tell the brain the input grid dimensions (called during present)
+    void setInputDimensions(int w, int h);
+
+    // Teach the brain the target output dimensions (training only)
+    void setOutputDimensions(int w, int h);
+
+    // Ask the brain what output dimensions should be (inference)
+    // Returns (width, height) based on winner-take-all readout
+    std::pair<int, int> getPredictedDimensions() const;
+
+    // ========================================
     // Query Interface
     // ========================================
 
-    // Get retina activation state
+    // Get retina activation state (true if ANY non-black color is active)
     bool isRetinaActive(size_t x, size_t y) const;
+
+    // Get predicted color at position (0-9, returns 0 if no color active)
+    uint8_t getRetinaColor(size_t x, size_t y) const;
 
     // Get pixel value at position (grayscale 0-255)
     uint8_t getPixelValue(size_t x, size_t y) const;
@@ -171,9 +197,9 @@ public:
 private:
     Network& network_;
 
-    // Layer 1: Retina neurons (64x64 = 4096)
+    // Layer 1: Retina neurons (64x64 x 10 colors = 40960)
     std::vector<NeuronId> retinaNeurons_;
-    std::vector<bool> retinaState_;  // Current activation state
+    std::vector<bool> retinaState_;  // Current activation state (per color channel)
 
     // Layer 2: Boundary detector neurons (64x64x4 = 16384)
     std::vector<NeuronId> boundaryNeurons_;
@@ -186,6 +212,13 @@ private:
 
     // Layer 3: Acute vertex detector neurons (triangle-like angles)
     std::vector<NeuronId> acuteVertexNeurons_;
+
+    // Parietal Patch: Dimension Sensors (32 neurons each = 128 total)
+    // These "ruler neurons" encode grid dimensions using population coding
+    std::vector<NeuronId> inputWidthNeurons_;   // 32 neurons for input width
+    std::vector<NeuronId> inputHeightNeurons_;  // 32 neurons for input height
+    std::vector<NeuronId> outputWidthNeurons_;  // 32 neurons for output width (predicted)
+    std::vector<NeuronId> outputHeightNeurons_; // 32 neurons for output height (predicted)
 
     // Current image buffer
     std::vector<uint8_t> currentImage_;
@@ -200,6 +233,7 @@ private:
     void buildLineIntegrators();
     void buildCornerDetectors();
     void buildAcuteVertexDetectors();
+    void buildDimensionSensors();  // Parietal Patch
 
     // Wire the layers together
     void wireRetinaToBoundary();
